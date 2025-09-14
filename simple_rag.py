@@ -3,12 +3,15 @@ Simple RAG implementations for demo
 """
 import json
 from typing import List, Dict, Any
+from api_llm import APILLM
 
 class SimpleTraditionalRAG:
     """Simple traditional RAG using keyword matching (no embeddings for simplicity)"""
     
-    def __init__(self):
+    def __init__(self, use_llm=True):
         self.documents = []
+        self.use_llm = use_llm
+        self.llm = APILLM() if use_llm else None
     
     def add_documents(self, docs: List[Dict[str, Any]]):
         """Add documents to the knowledge base"""
@@ -48,12 +51,55 @@ class SimpleTraditionalRAG:
         # Sort by score and return top-k
         scored_docs.sort(key=lambda x: x['similarity'], reverse=True)
         return scored_docs[:top_k]
+    
+    def generate_answer(self, query: str, top_k: int = 3) -> Dict[str, Any]:
+        """Generate an answer using retrieved documents and TinyLlama"""
+        # Get relevant documents
+        retrieved_docs = self.search(query, top_k)
+        
+        if not self.use_llm or not self.llm:
+            # Return simple concatenated results
+            if not retrieved_docs:
+                return {
+                    "answer": "No relevant information found.",
+                    "retrieved_docs": [],
+                    "method": "traditional_simple"
+                }
+            
+            # Simple concatenation of retrieved content
+            answer = "Based on the available information:\n\n"
+            for i, doc in enumerate(retrieved_docs[:3]):
+                answer += f"{i+1}. {doc.get('title', 'Document')}: {doc.get('content', '')}\n"
+            
+            return {
+                "answer": answer,
+                "retrieved_docs": retrieved_docs,
+                "method": "traditional_simple"
+            }
+        
+        # Use TinyLlama to generate response
+        try:
+            llm_response = self.llm.generate_response(retrieved_docs, query, "traditional")
+            return {
+                "answer": llm_response,
+                "retrieved_docs": retrieved_docs,
+                "method": "traditional_llm"
+            }
+        except Exception as e:
+            # Fallback to simple method
+            return {
+                "answer": f"LLM Error: {str(e)}. Fallback: " + retrieved_docs[0].get('content', 'No information available.') if retrieved_docs else "No information found.",
+                "retrieved_docs": retrieved_docs,
+                "method": "traditional_fallback"
+            }
 
 class SimpleGraphRAG:
     """Simple Graph RAG using the Neo4j knowledge graph"""
     
-    def __init__(self, graph_instance=None):
+    def __init__(self, graph_instance=None, use_llm=True):
         self.graph = graph_instance
+        self.use_llm = use_llm
+        self.llm = APILLM() if use_llm else None
     
     def search(self, query: str) -> List[Dict[str, Any]]:
         """Search using graph relationships"""
@@ -110,6 +156,52 @@ class SimpleGraphRAG:
             results.extend(heroes)
         
         return results
+    
+    def generate_answer(self, query: str) -> Dict[str, Any]:
+        """Generate an answer using graph search and TinyLlama"""
+        # Get relevant graph data
+        retrieved_docs = self.search(query)
+        
+        if not self.use_llm or not self.llm:
+            # Return simple concatenated results
+            if not retrieved_docs:
+                return {
+                    "answer": "No relevant information found in the knowledge graph.",
+                    "retrieved_docs": [],
+                    "method": "graph_simple"
+                }
+            
+            # Simple concatenation of graph results
+            answer = "Based on the knowledge graph:\n\n"
+            for i, doc in enumerate(retrieved_docs[:5]):
+                doc_type = doc.get('type', 'Unknown')
+                content = doc.get('content', str(doc))
+                answer += f"{i+1}. [{doc_type}] {content}\n"
+            
+            return {
+                "answer": answer,
+                "retrieved_docs": retrieved_docs,
+                "method": "graph_simple"
+            }
+        
+        # Use TinyLlama to generate response
+        try:
+            llm_response = self.llm.generate_response(retrieved_docs, query, "graph")
+            return {
+                "answer": llm_response,
+                "retrieved_docs": retrieved_docs,
+                "method": "graph_llm"
+            }
+        except Exception as e:
+            # Fallback to simple method
+            fallback_answer = "LLM Error: " + str(e)
+            if retrieved_docs:
+                fallback_answer += f"\n\nFallback: {retrieved_docs[0].get('content', 'No information available.')}"
+            return {
+                "answer": fallback_answer,
+                "retrieved_docs": retrieved_docs,
+                "method": "graph_fallback"
+            }
 
 def create_superhero_documents():
     """Create superhero documents for traditional RAG"""

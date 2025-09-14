@@ -1,7 +1,42 @@
-.git
-.vscode
-__pycache__
+# Python
+__pycache__/
 *.pyc
-.env
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+.coverage
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
-README.md
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Environment
+.env
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Model cache (will be downloaded in container)
+.cache/
+.huggingface/

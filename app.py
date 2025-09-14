@@ -10,6 +10,7 @@ import networkx as nx
 from plotly.subplots import make_subplots
 from knowledge_graph import SuperheroGraph
 from simple_rag import SimpleTraditionalRAG, SimpleGraphRAG, create_superhero_documents
+from api_llm import APILLM
 
 # Page configuration
 st.set_page_config(
@@ -32,6 +33,8 @@ if 'show_rag_structure' not in st.session_state:
     st.session_state.show_rag_structure = True
 if 'show_graph_viz' not in st.session_state:
     st.session_state.show_graph_viz = True
+if 'use_llm' not in st.session_state:
+    st.session_state.use_llm = True
 
 def create_graph_visualization(graph_data):
     """Create an interactive graph visualization using Plotly"""
@@ -157,25 +160,47 @@ def create_graph_visualization(graph_data):
     
     return fig
 
-def initialize_systems():
+def initialize_systems(use_llm=True):
     """Initialize both RAG systems"""
     try:
         with st.spinner("🔄 Initializing systems..."):
             # Initialize Traditional RAG
-            st.session_state.traditional_rag = SimpleTraditionalRAG()
+            progress_bar = st.progress(0)
+            progress_bar.progress(10)
+            st.session_state.traditional_rag = SimpleTraditionalRAG(use_llm=use_llm)
             docs = create_superhero_documents()
             st.session_state.traditional_rag.add_documents(docs)
             
+            progress_bar.progress(40)
             # Initialize Neo4j Graph
             st.session_state.neo4j_graph = SuperheroGraph()
             st.session_state.neo4j_graph.clear_graph()
             st.session_state.neo4j_graph.create_superhero_graph()
             
+            progress_bar.progress(70)
             # Initialize Graph RAG
-            st.session_state.graph_rag = SimpleGraphRAG(st.session_state.neo4j_graph)
+            st.session_state.graph_rag = SimpleGraphRAG(st.session_state.neo4j_graph, use_llm=use_llm)
             
+            # Initialize API if enabled
+            if use_llm:
+                progress_bar.progress(85)
+                st.info("🚀 Initializing Groq API client...")
+                
+                try:
+                    # Initialize the API client
+                    if st.session_state.traditional_rag.llm:
+                        st.session_state.traditional_rag.llm.load_model()
+                except Exception as llm_error:
+                    st.warning(f"⚠️ API initialization: {str(llm_error)}")
+            
+            progress_bar.progress(100)
             st.session_state.initialized = True
-            st.success("✅ Both systems initialized successfully!")
+            st.session_state.use_llm = use_llm
+            
+            success_msg = "✅ Both systems initialized successfully!"
+            if use_llm:
+                success_msg += " AI API is ready for fast responses."
+            st.success(success_msg)
             
     except Exception as e:
         st.error(f"❌ Initialization failed: {str(e)}")
@@ -187,17 +212,58 @@ def main():
     # Header
     st.title("🦸‍♂️ Graph RAG vs Traditional RAG Demo")
     st.markdown("### 🎯 Understanding the Difference Between RAG Approaches")
+    st.markdown("#### 🤖 Now powered by **TinyLlama** for natural language generation!")
     
     # Sidebar for navigation and setup
     with st.sidebar:
         st.header("🛠️ Setup")
         
+        # LLM Configuration
+        st.subheader("🚀 AI Configuration")
+        use_llm = st.checkbox("Enable AI Responses", value=True, 
+                             help="Use Groq API for fast AI responses")
+        
+        if use_llm:
+            api_key = st.text_input(
+                "Groq API Key (Optional):",
+                type="password",
+                help="Get free API key at https://console.groq.com/ - Leave empty for mock responses",
+                placeholder="gsk_..."
+            )
+            
+            if api_key:
+                st.success("🚀 Groq API: Very fast cloud AI responses")
+                # Set environment variable for the session
+                import os
+                os.environ["GROQ_API_KEY"] = api_key
+            else:
+                st.info("⚡ Mock Mode: Using pre-written responses (works without API key)")
+        else:
+            st.info("📝 Simple text concatenation will be used instead of AI")
+        
+        st.markdown("---")
+        
         if not st.session_state.initialized:
             st.warning("⚠️ Systems not initialized")
             if st.button("🚀 Initialize Systems"):
-                initialize_systems()
+                initialize_systems(use_llm)
         else:
             st.success("✅ Systems ready!")
+            
+            # Show LLM model status
+            if hasattr(st.session_state, 'use_llm') and st.session_state.use_llm:
+                try:
+                    if (st.session_state.traditional_rag and 
+                        st.session_state.traditional_rag.llm and 
+                        st.session_state.traditional_rag.llm.loaded):
+                        
+                        model_info = st.session_state.traditional_rag.llm.get_model_info()
+                        st.success(f"🤖 {model_info['description']}")
+                        st.caption(f"Device: {model_info['device']} | {model_info['speed']}")
+                    else:
+                        st.warning("⚠️ LLM not loaded")
+                except Exception as e:
+                    st.error(f"❌ Model status error: {str(e)}")
             
             if st.button("🔄 Reinitialize"):
                 st.session_state.initialized = False
@@ -337,9 +403,83 @@ def main():
         st.markdown("### 🔄 Comparing RAG Approaches")
         
         # Create tabs for better organization
-        tab1, tab2, tab3 = st.tabs(["📊 Side-by-Side", "📄 Traditional Details", "🕸️ Graph Details"])
+        tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Answers", "📊 Side-by-Side", "📄 Traditional Details", "🕸️ Graph Details"])
         
         with tab1:
+            # AI-powered responses
+            st.markdown("#### 🤖 AI-Powered Responses")
+            
+            if hasattr(st.session_state, 'use_llm') and st.session_state.use_llm:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("##### 📄 Traditional RAG + AI")
+                    with st.container():
+                        try:
+                            with st.spinner("🧠 Generating Traditional RAG response..."):
+                                trad_response = st.session_state.traditional_rag.generate_answer(query)
+                            
+                            # Show the generated answer
+                            st.markdown("**🎯 AI Generated Answer:**")
+                            st.markdown(trad_response['answer'])
+                            
+                            # Show method used
+                            method_emoji = {"traditional_llm": "🤖", "traditional_simple": "📝", "traditional_fallback": "⚠️"}
+                            st.markdown(f"**Method:** {method_emoji.get(trad_response['method'], '❓')} {trad_response['method']}")
+                            
+                            # Show retrieved documents
+                            if trad_response['retrieved_docs']:
+                                with st.expander(f"📚 Source Documents ({len(trad_response['retrieved_docs'])})"):
+                                    for i, doc in enumerate(trad_response['retrieved_docs']):
+                                        st.markdown(f"**{i+1}. {doc['title']}** (Score: {doc.get('similarity', 0):.3f})")
+                                        st.text(doc['content'][:100] + "...")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Traditional RAG error: {str(e)}")
+                
+                with col2:
+                    st.markdown("##### 🕸️ Graph RAG + AI")
+                    with st.container():
+                        try:
+                            with st.spinner("🧠 Generating Graph RAG response..."):
+                                graph_response = st.session_state.graph_rag.generate_answer(query)
+                            
+                            # Show the generated answer
+                            st.markdown("**🎯 AI Generated Answer:**")
+                            st.markdown(graph_response['answer'])
+                            
+                            # Show method used
+                            method_emoji = {"graph_llm": "🤖", "graph_simple": "🕸️", "graph_fallback": "⚠️"}
+                            st.markdown(f"**Method:** {method_emoji.get(graph_response['method'], '❓')} {graph_response['method']}")
+                            
+                            # Show retrieved graph data
+                            if graph_response['retrieved_docs']:
+                                with st.expander(f"🕸️ Graph Connections ({len(graph_response['retrieved_docs'])})"):
+                                    for i, doc in enumerate(graph_response['retrieved_docs']):
+                                        doc_type = doc.get('type', 'Unknown')
+                                        st.markdown(f"**{i+1}. [{doc_type}]**")
+                                        st.text(doc.get('content', str(doc))[:100] + "...")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Graph RAG error: {str(e)}")
+                
+                # Comparison insight
+                st.markdown("---")
+                st.markdown("**🔍 Key Differences:**")
+                model_name = getattr(st.session_state, 'model_type', 'AI')
+                st.markdown(f"""
+                - **📄 Traditional RAG:** Uses keyword matching to find relevant documents, then AI generates a response
+                - **🕸️ Graph RAG:** Traverses relationships in the knowledge graph, then AI synthesizes connected information
+                - **🧠 AI Model:** Provides natural language understanding and generation for both approaches
+                """)
+                if hasattr(st.session_state, 'traditional_rag') and st.session_state.traditional_rag.llm:
+                    model_info = st.session_state.traditional_rag.llm.get_model_info()
+                    st.caption(f"Currently using: {model_info.get('description', 'Unknown model')}")
+            
+            else:
+                st.info("🤖 Enable AI Responses in the sidebar to see AI-generated responses")
+        
+        with tab2:
             # Side by side comparison
             col1, col2 = st.columns(2)
             
